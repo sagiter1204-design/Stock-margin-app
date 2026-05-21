@@ -25,9 +25,12 @@ def load_taifex_data():
     with sync_playwright() as p:
 
         browser = p.chromium.launch(
-            headless=True
+            headless=True,
+            args=[
+                "--disable-dev-shm-usage",
+                "--no-sandbox"
+            ]
         )
-
         page = browser.new_page()
 
         page.goto(
