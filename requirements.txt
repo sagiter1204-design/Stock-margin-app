@@ -1,0 +1,6 @@
+streamlit
+pandas
+playwright
+lxml
+html5lib
+openpyxl
