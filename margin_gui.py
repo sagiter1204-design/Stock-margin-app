@@ -16,7 +16,7 @@ st.set_page_config(
 st.title("📈 股票期貨保證金計算器")
 
 # =========================
-# 抓取 TAIFEX 資料
+# 自動抓取 TAIFEX 資料
 # =========================
 
 @st.cache_data(ttl=3600)
@@ -36,44 +36,14 @@ def load_taifex_data():
 
     response.encoding = "utf-8"
 
-    # =========================
-    # DEBUG資訊
-    # =========================
+    tables = pd.read_html(
+        StringIO(response.text)
+    )
 
-    st.write("HTTP狀態碼：", response.status_code)
+    # 取最大表格
+    df = max(tables, key=len)
 
-    st.write("前1000字內容：")
-
-    st.text(response.text[:1000])
-
-    # =========================
-    # 讀取表格
-    # =========================
-
-    try:
-
-        tables = pd.read_html(
-            StringIO(response.text)
-        )
-
-        st.write("找到表格數量：", len(tables))
-
-        df = max(tables, key=len)
-
-        st.write("表格預覽：")
-
-        st.dataframe(df.head())
-
-    except Exception as e:
-
-        st.error(f"讀取表格失敗：{e}")
-
-        st.stop()
-
-    # =========================
     # 清理欄位名稱
-    # =========================
-
     df.columns = [
         str(col).replace("\n", " ").strip()
         for col in df.columns
@@ -102,34 +72,20 @@ except Exception as e:
 COL_STOCK_ID = "股票期貨標的 證券代號"
 COL_NAME = "股票期貨 中文簡稱"
 COL_MARGIN = "原始保證金適用比例"
-
-# =========================
-# 檢查欄位
-# =========================
-
-st.write("目前欄位：")
-
-st.write(df.columns.tolist())
+COL_MAINTAIN = "維持保證金適用比例"
+COL_SETTLEMENT = "結算保證金適用比例"
 
 # =========================
 # 商品分類
 # =========================
 
-try:
+normal_df = df[
+    ~df[COL_NAME].astype(str).str.contains("小型", na=False)
+]
 
-    normal_df = df[
-        ~df[COL_NAME].astype(str).str.contains("小型", na=False)
-    ]
-
-    mini_df = df[
-        df[COL_NAME].astype(str).str.contains("小型", na=False)
-    ]
-
-except Exception as e:
-
-    st.error(f"欄位錯誤：{e}")
-
-    st.stop()
+mini_df = df[
+    df[COL_NAME].astype(str).str.contains("小型", na=False)
+]
 
 # =========================
 # 商品類型
@@ -141,7 +97,7 @@ product_type = st.radio(
 )
 
 # =========================
-# 選擇資料來源
+# 商品資料
 # =========================
 
 if product_type == "一般個股期":
@@ -155,7 +111,7 @@ else:
     multiplier = 100
 
 # =========================
-# 商品選單
+# 建立選單
 # =========================
 
 temp_df = temp_df.copy()
@@ -165,6 +121,10 @@ temp_df["選單"] = (
     + " - "
     + temp_df[COL_NAME].astype(str)
 )
+
+# =========================
+# 商品選擇
+# =========================
 
 stock_select = st.selectbox(
     "選擇商品",
@@ -187,6 +147,17 @@ price = st.number_input(
     "輸入成交價",
     min_value=0.0,
     step=1.0
+)
+
+# =========================
+# 口數
+# =========================
+
+quantity = st.number_input(
+    "口數",
+    min_value=1,
+    step=1,
+    value=1
 )
 
 # =========================
@@ -227,25 +198,49 @@ if st.button("計算保證金"):
 
         stock_name = row[COL_NAME]
 
-        margin_ratio = str(
-            row[COL_MARGIN]
-        )
+        # =========================
+        # 保證金比例
+        # =========================
 
-        margin_ratio_float = float(
-            margin_ratio.replace("%", "")
+        initial_ratio = float(
+            str(row[COL_MARGIN]).replace("%", "")
+        ) / 100
+
+        maintain_ratio = float(
+            str(row[COL_MAINTAIN]).replace("%", "")
+        ) / 100
+
+        settlement_ratio = float(
+            str(row[COL_SETTLEMENT]).replace("%", "")
         ) / 100
 
         # =========================
-        # 計算保證金
+        # 契約價值
         # =========================
 
         contract_value = (
-            price * multiplier
+            price
+            * multiplier
+            * quantity
         )
+
+        # =========================
+        # 保證金計算
+        # =========================
 
         initial_margin = (
             contract_value
-            * margin_ratio_float
+            * initial_ratio
+        )
+
+        maintain_margin = (
+            contract_value
+            * maintain_ratio
+        )
+
+        settlement_margin = (
+            contract_value
+            * settlement_ratio
         )
 
         # =========================
@@ -254,26 +249,36 @@ if st.button("計算保證金"):
 
         st.success("計算完成")
 
-        st.write("商品類型：", product_type)
+        st.write("### 📌 計算結果")
 
-        st.write("股票代號：", stock_id)
+        st.write(f"商品類型：{product_type}")
 
-        st.write("商品名稱：", stock_name)
+        st.write(f"股票代號：{stock_id}")
 
-        st.write("成交價：", price)
+        st.write(f"商品名稱：{stock_name}")
 
-        st.write("原始保證金比例：", margin_ratio)
+        st.write(f"成交價：{price}")
 
-        st.write("契約乘數：", multiplier)
+        st.write(f"口數：{quantity}")
+
+        st.write(f"契約乘數：{multiplier}")
 
         st.write(
-            "契約價值：",
-            f"{int(contract_value):,}"
+            f"契約總價值：{int(contract_value):,} 元"
+        )
+
+        st.write("---")
+
+        st.write(
+            f"原始保證金：{int(initial_margin):,} 元"
         )
 
         st.write(
-            "原始保證金：",
-            f"{int(initial_margin):,} 元"
+            f"維持保證金：{int(maintain_margin):,} 元"
+        )
+
+        st.write(
+            f"結算保證金：{int(settlement_margin):,} 元"
         )
 
     except Exception as e:
